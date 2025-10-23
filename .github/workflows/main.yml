@@ -1,0 +1,61 @@
+name: Compilador de Mods Forge
+
+# Esto permite que el robot se active "a petición" desde fuera de GitHub
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Paso 1: Descarga el código del repositorio (aunque esté casi vacío)
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    # Paso 2: Instala Java 8, necesario para Forge 1.8.9
+    - name: Set up JDK 8
+      uses: actions/setup-java@v3
+      with:
+        java-version: '8'
+        distribution: 'temurin'
+
+    # Paso 3: Busca el archivo subido y lo descomprime
+    - name: Descomprimir el mod
+      run: |
+        # Busca el primer archivo .zip o .rar en la carpeta 'uploads'
+        # (que crearemos más adelante)
+        MOD_ARCHIVO=$(find uploads -name '*.zip' -o -name '*.rar' | head -n 1)
+
+        # Crea una carpeta para el código fuente
+        mkdir -p source_code
+
+        # Revisa si es .zip o .rar y lo descomprime en la carpeta 'source_code'
+        if [[ "$MOD_ARCHIVO" == *.zip ]]; then
+          unzip "$MOD_ARCHIVO" -d source_code
+        elif [[ "$MOD_ARCHIVO" == *.rar ]]; then
+          sudo apt-get update && sudo apt-get install -y unrar
+          unrar x "$MOD_ARCHIVO" source_code
+        else
+          echo "No se encontró un archivo .zip o .rar"
+          exit 1
+        fi
+
+    # Paso 4: Da permisos de ejecución al compilador de Forge
+    - name: Hacer ejecutable gradlew
+      run: chmod +x ./source_code/*/gradlew || echo "gradlew no encontrado, continuando..."
+
+    # Paso 5: Compila el mod
+    - name: Compilar el mod con Gradle
+      run: |
+        # Encuentra la carpeta del proyecto dentro de source_code
+        PROJECT_DIR=$(find source_code -name 'gradlew' -print0 | xargs -0 dirname)
+        cd "$PROJECT_DIR"
+        ./gradlew build
+
+    # Paso 6: Empaqueta los .jar resultantes para poder descargarlos
+    - name: Subir artefactos (los .jar compilados)
+      uses: actions/upload-artifact@v3
+      with:
+        name: mods-compilados
+        path: '**/build/libs/*.jar'
